@@ -1,0 +1,10 @@
+#!/bin/bash
+echo "Postinst start pwd is `pwd`"
+
+rm -rf /app/sp_pydev_demo/models
+ln -sf /app/model/basic /app/sp_pydev_demo/models
+
+chown -R :video /app/sp_pydev_demo/
+chown -R :video /app/sp_cdev_demo/
+
+exit 0
