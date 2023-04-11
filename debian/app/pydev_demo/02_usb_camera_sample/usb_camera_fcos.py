@@ -2,7 +2,7 @@
 
 import os
 from hobot_dnn import pyeasy_dnn as dnn
-from hobot_sppy import libsppydev as pydev
+from hobot_vio import libsrcampy as srcampy
 import numpy as np
 import cv2
 import colorsys
@@ -277,7 +277,7 @@ if __name__ == '__main__':
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
     # Get HDMI display object
-    disp = pydev.Display()
+    disp = srcampy.Display()
     # For the meaning of parameters, please refer to the relevant documents of HDMI display
     disp_w, disp_h = get_display_res()
     disp.display(0, disp_w, disp_h)

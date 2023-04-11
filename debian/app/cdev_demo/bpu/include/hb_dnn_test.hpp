@@ -11,6 +11,7 @@
 #include "sp_vio.h"
 #include "yolov5_post_process.hpp"
 #include "fcos_post_process.hpp"
+#include "yolov3_post_process.hpp"
 #include "sp_display.h"
 #include "sp_codec.h"
 #include "sp_sys.h"

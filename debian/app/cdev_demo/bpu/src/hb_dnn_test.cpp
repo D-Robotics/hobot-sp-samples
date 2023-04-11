@@ -23,6 +23,7 @@
 // global var area
 std::deque<bpu_work> yolov5_work_deque;//work deque,contains processed tensor
 std::deque<bpu_work> fcos_work_deque;//work deque,contains processed tensor
+std::deque<bpu_work> yolov3_work_deque;//work deque,contains processed tensor
 
 static std::mutex yolo_mtx;
 static std::atomic_bool yolo_finish;
@@ -42,6 +43,8 @@ void yolov5_do_post(void *display);
 void yolov5_feed_bpu(void *camera, bpu_module *bpu_obj, std::shared_ptr<char> &buffer_672p);
 void fcos_do_post(void *display);
 void focs_feed_bpu(void *vps, bpu_module *bpu_handle);
+void yolov3_do_post(void *display);
+void yolov3_feed_bpu(void *camera, bpu_module *bpu_obj, std::shared_ptr<char> &buffer_416p);
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state)//args parse handle
 {
@@ -108,7 +111,7 @@ int main(int argc, char *argv[])
 
         auto camera = sp_init_vio_module();
         auto display = sp_init_display_module();
-        int ret = sp_open_camera(camera, 0, 2, &(width[0]), &(height[0]));//open camera
+        int ret = sp_open_camera(camera, 0, 0, 2, &(width[0]), &(height[0]));//open camera
         sleep(1);//for isp to stabilize
         ret = sp_start_display(display, 1, disp_w, disp_h);//display on 1 chn,this will not destroy the desktop chn
         sp_module_bind(camera, SP_MTYPE_VIO, display, SP_MTYPE_DISPLAY);//bind first
@@ -169,6 +172,40 @@ int main(int argc, char *argv[])
         sp_vio_close(vps);
         // module release
         sp_release_vio_module(vps);
+    }
+    else if (post_mode == 2)//yolov3 pipeline
+    {
+        std::shared_ptr<char> buffer_416p(new char[FRAME_BUFFER_SIZE(416, 416)]);//create buffer for saving resized frame
+
+        bpu_module *bpu_obj = sp_init_bpu_module(model_file.c_str());
+        int width[2] = {416, disp_w};//create 2 chn,416*416 for bpu input tensors,another for diplay.
+        int height[2] = {416, disp_h};
+
+        auto camera = sp_init_vio_module();
+        auto display = sp_init_display_module();
+        int ret = sp_open_camera(camera, 0, 2, &(width[0]), &(height[0]));//open camera
+        sleep(1);//for isp to stabilize
+        ret = sp_start_display(display, 1, disp_w, disp_h);//display on 1 chn,this will not destroy the desktop chn
+        sp_module_bind(camera, SP_MTYPE_VIO, display, SP_MTYPE_DISPLAY);//bind first
+        ret = sp_start_display(display, 3, disp_w, disp_h); //after bind 1 chn to camera,open 3 chn to draw rectangle
+        if (ret)
+        {
+            printf("display error!");
+            return -1;
+        }
+
+        std::thread t1(yolov3_feed_bpu, std::ref(camera), std::ref(bpu_obj), std::ref(buffer_416p));//start pre processing thread
+        std::thread t2(yolov3_do_post, std::ref(display));//start post processing thread
+
+        t1.join();
+        t2.join();
+        sp_module_unbind(camera, SP_MTYPE_VIO, display, SP_MTYPE_DISPLAY);
+        sp_stop_display(display);
+        sp_release_display_module(display);
+        sp_vio_close(camera);
+        sp_release_vio_module(camera);
+        printf("stop bpu!\n");
+        sp_release_bpu_module(bpu_obj);
     }
     return 0;
 }
@@ -264,7 +301,6 @@ void fcos_do_post(void *display)
             {
                 sp_display_draw_rect(display, results[i].bbox.xmin, results[i].bbox.ymin,
                                      results[i].bbox.xmax, results[i].bbox.ymax, 3, 0, 0xFFFF0000, 2);//draw rectangle
-                // printf("id:%d,class:%s,score:%f\n", results[i].id, results[i].class_name, results[i].score);
             }
         }
 
@@ -351,6 +387,98 @@ void yolov5_do_post(void *display)
             {
                 sp_display_draw_rect(display, results[i]->xmin, results[i]->ymin,
                                      results[i]->xmax, results[i]->ymax, 3, 0, 0xFFFF0000, 2);//draw rectangle
+                sp_display_draw_string(display, results[i]->xmin, results[i]->ymin,
+                                     const_cast<char*>(results[i]->class_name.c_str()), 3, 0, 0xFFFF0000, 2); //draw string
+            }
+        }
+
+    } while (!yolo_finish);
+    printf("%s,finish!\n", __func__);
+}
+
+void yolov3_feed_bpu(void *camera, bpu_module *bpu_handle, std::shared_ptr<char> &buffer_416p)
+{
+    //using 5 group tensors as ring buffer
+    //The number of tensors in each group can be known by calling sp_init_bpu_tensors
+    hbDNNTensor output_tensors[5][yolov3_output_nums_];
+    printf("%d", yolov3_output_nums_);
+    int cur_ouput_buf_idx = 0;
+    int ret = -1;
+    for (int i = 0; i < 5; i++)
+    {
+        //init tensor
+        ret = sp_init_bpu_tensors(bpu_handle, output_tensors[i]);
+        if (ret)
+        {
+            printf("prepare model output tensor failed\n");
+            is_stop = true;
+        }
+    }
+    while (!is_stop)
+    {
+        bpu_work yolov3_work;
+        sp_vio_get_frame(camera, buffer_416p.get(), 416, 416, 2000);//get frame,416*416 is for bpu input tensors
+        bpu_handle->output_tensor = &output_tensors[cur_ouput_buf_idx][0];
+        yolov3_work.start_time = std::chrono::high_resolution_clock::now();//get timestamp
+        sp_bpu_start_predict(bpu_handle, buffer_416p.get());//star bpu predict
+        yolov3_work.payload = bpu_handle->output_tensor;
+        yolov3_work_deque.push_back(yolov3_work);//push back work strcut to deque
+        cur_ouput_buf_idx++;
+        cur_ouput_buf_idx %= 5;
+    }
+    yolo_finish = true;
+    printf("%s,finish!\n", __func__);
+    {
+        std::unique_lock<std::mutex> lock(yolo_mtx);
+        for (size_t i = 0; i < 5; i++)
+        {
+            sp_deinit_bpu_tensor(output_tensors[i], yolov3_output_nums_);//relaese tensor
+        }
+    }
+}
+
+void yolov3_do_post(void *display)
+{
+    bpu_image_info_t image_info;//using for mapping the tensor result coordinates back to the original image
+    image_info.m_model_h = 416;
+    image_info.m_model_w = 416;//input tensor size
+    image_info.m_ori_height = disp_h;
+    image_info.m_ori_width = disp_w;//origin size
+    std::vector<std::shared_ptr<YoloV3Result>> results;//store process result
+    std::vector<YoloV3Result> parse_results;
+    do
+    {
+        while (!yolov3_work_deque.empty() && !is_stop)
+        {
+
+            results.clear();
+            parse_results.clear();
+            auto work = yolov3_work_deque.front();
+            auto output = work.payload;
+            auto stime = work.start_time;
+
+            for (size_t j = 0; j < yolov3_output_nums_; j++)
+            {
+                {
+                    std::unique_lock<std::mutex> lock(yolo_mtx);
+                    if (!is_stop)
+                        yolov3_ParseTensor(std::make_shared<hbDNNTensor>(output[j]), static_cast<int>(j), parse_results, image_info);//do post process part 1
+                }
+            }
+            yolo3_nms(parse_results, yolov3_nms_threshold_, yolov3_nms_top_k_, results, false);//do post process part 2
+            // fps
+            auto delta_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - stime).count();
+            double fps = 1000.0 / delta_time;
+            printf("%s fps:%lf,processing time :%ld\n", __func__, fps, delta_time);
+            // fps
+            yolov3_work_deque.pop_front();
+            sp_display_draw_rect(display, 0, 0, 0, 0, 3, 1, 0x00000000, 2);//flush display
+            for (size_t i = 0; i < results.size(); i++)
+            {
+                sp_display_draw_rect(display, results[i]->xmin, results[i]->ymin,
+                                     results[i]->xmax, results[i]->ymax, 3, 0, 0xFFFF0000, 2); //draw rectangle
+                sp_display_draw_string(display, results[i]->xmin, results[i]->ymin,
+                                     const_cast<char*>(results[i]->class_name.c_str()), 3, 0, 0xFFFF0000, 2); //draw string
             }
         }
 

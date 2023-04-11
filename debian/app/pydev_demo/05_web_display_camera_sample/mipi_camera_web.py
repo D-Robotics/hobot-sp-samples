@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import sys, os
 import numpy as np
 import cv2
@@ -234,7 +235,7 @@ sensor_reset_shell()
 models = pyeasy_dnn.load('../models/fcos_512x512_nv12.bin')
 input_shape = (512, 512)
 cam = srcampy.Camera()
-cam.open_cam(0, 1, fps, [512,1920], [512,1080])
+cam.open_cam(0, 0, fps, [512,1920], [512,1080])
 enc = srcampy.Encoder()
 enc.encode(0, 3, 1920, 1080)
 classes = get_classes()

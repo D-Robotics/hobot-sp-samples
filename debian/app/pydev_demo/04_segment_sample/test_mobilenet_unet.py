@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from hobot_dnn import pyeasy_dnn
 import numpy as np
 import cv2

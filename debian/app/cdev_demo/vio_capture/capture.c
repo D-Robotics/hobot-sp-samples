@@ -74,7 +74,7 @@ int main(int argc, char **argv)
     //init camera
     void *camera = sp_init_vio_module();
     //open camera
-    ret = sp_open_camera(camera, 0, 1, &widths[0], &heights[0]);
+    ret = sp_open_camera(camera, 0, 0, 1, &widths[0], &heights[0]);
     sleep(2);//wait for isp stability
     if (ret != 0)
     {
