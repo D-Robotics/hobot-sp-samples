@@ -235,11 +235,11 @@ def nms(bboxes, iou_threshold, sigma=0.3, method='nms'):
 
 
 def get_display_res():
-    if os.path.exists("/usr/bin/8618_get_edid") == False:
+    if os.path.exists("/usr/bin/get_hdmi_res") == False:
         return 1920, 1080
 
     import subprocess
-    p = subprocess.Popen(["/usr/bin/8618_get_edid"], stdout=subprocess.PIPE)
+    p = subprocess.Popen(["/usr/bin/get_hdmi_res"], stdout=subprocess.PIPE)
     result = p.communicate()
     res = result[0].split(b',')
     res[1] = max(min(int(res[1]), 1920), 0)
