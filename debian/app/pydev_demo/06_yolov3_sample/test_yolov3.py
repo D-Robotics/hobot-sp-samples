@@ -36,7 +36,7 @@ def print_properties(pro):
 
 
 if __name__ == '__main__':
-    models = dnn.load('../models/yolov3_darknet53_416x416_nv12.bin')
+    models = dnn.load('../models/yolov3_416x416_nv12.bin')
     # 打印输入 tensor 的属性
     print_properties(models[0].inputs[0].properties)
     # 打印输出 tensor 的属性
