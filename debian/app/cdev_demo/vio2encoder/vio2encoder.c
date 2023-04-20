@@ -77,7 +77,7 @@ int main(int argc, char **argv)
     void *encoder = sp_init_encoder_module();
     char *stream_buffer = malloc(sizeof(char) * STREAM_FRAME_SIZE);
     //open camera
-    ret = sp_open_camera(vio_object, 0, 1, &width, &height);
+    ret = sp_open_camera(vio_object, 0, -1, 1, &width, &height);
     if (ret != 0)
     {
         printf("[Error] sp_open_camera failed!\n");

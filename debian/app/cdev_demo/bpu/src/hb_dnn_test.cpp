@@ -111,7 +111,7 @@ int main(int argc, char *argv[])
 
         auto camera = sp_init_vio_module();
         auto display = sp_init_display_module();
-        int ret = sp_open_camera(camera, 0, 0, 2, &(width[0]), &(height[0]));//open camera
+        int ret = sp_open_camera(camera, 0, -1, 2, &(width[0]), &(height[0]));//open camera
         sleep(1);//for isp to stabilize
         ret = sp_start_display(display, 1, disp_w, disp_h);//display on 1 chn,this will not destroy the desktop chn
         sp_module_bind(camera, SP_MTYPE_VIO, display, SP_MTYPE_DISPLAY);//bind first
@@ -183,7 +183,7 @@ int main(int argc, char *argv[])
 
         auto camera = sp_init_vio_module();
         auto display = sp_init_display_module();
-        int ret = sp_open_camera(camera, 0, 2, &(width[0]), &(height[0]));//open camera
+        int ret = sp_open_camera(camera, 0, -1, 2, &(width[0]), &(height[0]));//open camera
         sleep(1);//for isp to stabilize
         ret = sp_start_display(display, 1, disp_w, disp_h);//display on 1 chn,this will not destroy the desktop chn
         sp_module_bind(camera, SP_MTYPE_VIO, display, SP_MTYPE_DISPLAY);//bind first

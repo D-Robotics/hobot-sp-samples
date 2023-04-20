@@ -14,7 +14,7 @@ TARGET := $(BIN)/sample
 BUILD := build
 # Library search directories and flags
 EXT_LIB :=/usr/lib /usr/lib/hbbpu/
-LDFLAGS :=-ldnn -lhb_dnn -lpthread -lspcdev -lopencv_world
+LDFLAGS :=-ldnn -lpthread -lspcdev -lopencv_world
 LDPATHS := $(addprefix -L,$(LIB) $(EXT_LIB))
 
 # Include directories

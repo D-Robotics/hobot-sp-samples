@@ -278,14 +278,6 @@ def run(outputs):
             f"Total time cost for 100 frames: {finish_time - start_time}, fps: {100/(finish_time - start_time)}"
         )
 
-def sensor_reset_shell():
-    os.system("echo 19 > /sys/class/gpio/export")
-    os.system("echo out > /sys/class/gpio/gpio19/direction")
-    os.system("echo 0 > /sys/class/gpio/gpio19/value")
-    sleep(0.2)
-    os.system("echo 1 > /sys/class/gpio/gpio19/value")
-    os.system("echo 19 > /sys/class/gpio/unexport")
-    os.system("echo 1 > /sys/class/vps/mipi_host0/param/stop_check_instart")
 
 if __name__ == '__main__':
     models = dnn.load('../models/fcos_512x512_nv12.bin')
@@ -303,10 +295,9 @@ if __name__ == '__main__':
     # get model info
     h, w = get_hw(models[0].inputs[0].properties)
     input_shape = (h, w)
-    sensor_reset_shell()
     # Open f37 camera
     # For the meaning of parameters, please refer to the relevant documents of camera
-    cam.open_cam(0, 0, 30, [1920, w, disp_w], [1080, h, disp_h])
+    cam.open_cam(0, -1, 30, [1920, w, disp_w], [1080, h, disp_h])
 
     # Get HDMI display object
     disp = srcampy.Display()

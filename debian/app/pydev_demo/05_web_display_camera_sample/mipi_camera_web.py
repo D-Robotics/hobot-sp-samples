@@ -222,20 +222,11 @@ def serialize(FrameMessage, prediction_bbox):
     prot_buf = FrameMessage.SerializeToString()
     return prot_buf
 
-def sensor_reset_shell():
-    os.system("echo 19 > /sys/class/gpio/export")
-    os.system("echo out > /sys/class/gpio/gpio19/direction")
-    os.system("echo 0 > /sys/class/gpio/gpio19/value")
-    time.sleep(0.2)
-    os.system("echo 1 > /sys/class/gpio/gpio19/value")
-    os.system("echo 19 > /sys/class/gpio/unexport")
-    os.system("echo 1 > /sys/class/vps/mipi_host0/param/stop_check_instart")
 
-sensor_reset_shell()
 models = pyeasy_dnn.load('../models/fcos_512x512_nv12.bin')
 input_shape = (512, 512)
 cam = srcampy.Camera()
-cam.open_cam(0, 0, fps, [512,1920], [512,1080])
+cam.open_cam(0, -1, fps, [512,1920], [512,1080])
 enc = srcampy.Encoder()
 enc.encode(0, 3, 1920, 1080)
 classes = get_classes()
