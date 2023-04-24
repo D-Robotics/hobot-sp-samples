@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys, os
+import signal
 import numpy as np
 import cv2
 import google.protobuf
@@ -13,6 +14,9 @@ import subprocess
 from hobot_vio import libsrcampy as srcampy
 from hobot_dnn import pyeasy_dnn
 fps = 30
+
+def signal_handler(signal, frame):
+    sys.exit(0)
 
 # detection model class names
 def get_classes():
@@ -258,6 +262,7 @@ async def web_service(websocket, path):
 
 
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, signal_handler)
     start_server = websockets.serve(web_service, "0.0.0.0", 8080)
     asyncio.get_event_loop().run_until_complete(start_server)
     asyncio.get_event_loop().run_forever()

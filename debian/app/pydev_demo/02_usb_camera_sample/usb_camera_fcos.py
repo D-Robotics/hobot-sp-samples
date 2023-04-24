@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import sys
+import signal
 import os
 from hobot_dnn import pyeasy_dnn as dnn
 from hobot_vio import libsrcampy as srcampy
@@ -7,6 +9,10 @@ import numpy as np
 import cv2
 import colorsys
 from time import time
+
+def signal_handler(signal, frame):
+    print("\nExiting program")
+    sys.exit(0)
 
 # detection model class names
 def get_classes():
@@ -254,6 +260,8 @@ def print_properties(pro):
     print("shape:", pro.shape)
 
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, signal_handler)
+
     models = dnn.load('../models/fcos_512x512_nv12.bin')
     # 打印输入 tensor 的属性
     print_properties(models[0].inputs[0].properties)

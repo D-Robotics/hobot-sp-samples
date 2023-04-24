@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import signal
 import os
 import numpy as np
 import cv2
@@ -14,6 +15,10 @@ from hobot_dnn import pyeasy_dnn as dnn
 import threading
 
 image_counter = None
+
+
+def signal_handler(signal, frame):
+    sys.exit(0)
 
 
 def get_display_res():
@@ -280,6 +285,8 @@ def run(outputs):
 
 
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, signal_handler)
+
     models = dnn.load('../models/fcos_512x512_nv12.bin')
     print("--- model input properties ---")
     # 打印输入 tensor 的属性
