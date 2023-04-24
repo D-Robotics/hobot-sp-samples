@@ -35,6 +35,7 @@ struct arguments
     std::string video_path;
     int height;
     int width;
+    bool debug;
 };
 static struct argp_option options[] = {
     {"mode", 'm', "type", 0, "0:yolov5;1:fcos"},
@@ -42,6 +43,6 @@ static struct argp_option options[] = {
     {"input_video", 'i', "video path", 0, "path of video"},
     {"video_height", 'h', "height", 0, "height of video"},
     {"video_width", 'w', "width", 0, "width of video"},
+    {"debug", 'd', 0, 0, "Print lots of debugging information."},
     {0}};
-
 #endif

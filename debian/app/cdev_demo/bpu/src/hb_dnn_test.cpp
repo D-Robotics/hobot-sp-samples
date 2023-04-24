@@ -1,9 +1,10 @@
-/*
- * @Author: jiale01.luo
- * @Date: 2022-10-24 10:19:20
- * @Last Modified by: jiale01.luo
- * @Last Modified time: 2022-11-11 15:34:47
- */
+/***************************************************************************
+ * @COPYRIGHT NOTICE
+ * @Copyright 2023 Horizon Robotics, Inc.
+ * @All rights reserved.
+ * @Date: 2023-04-24 14:36:15
+ * @LastEditTime: 2023-04-24 15:06:41
+ ***************************************************************************/
 #include <stdint.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -38,6 +39,7 @@ static std::atomic<bool> is_stop;//runing flag
 static int disp_w = 0, disp_h = 0;//display resolution
 static int video_w = 0, video_h = 0;//only used on fcos,input video resolution
 static std::string stream_file;//only used on fcos,input video file path
+static bool debug = false;
 
 void yolov5_do_post(void *display);
 void yolov5_feed_bpu(void *camera, bpu_module *bpu_obj, std::shared_ptr<char> &buffer_672p);
@@ -65,6 +67,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)//args par
         break;
     case 'w':
         args->width = atoi(arg);
+        break;
+    case 'd':
+        args->debug = true;
         break;
     case ARGP_KEY_END:
     {
@@ -100,6 +105,7 @@ int main(int argc, char *argv[])
     stream_file = args.video_path;
     video_w = args.width;
     video_h = args.height;
+    debug = args.debug;
     sp_get_display_resolution(&disp_w, &disp_h);//get display resolution 
     if (post_mode == 0)//yolov5 pipeline
     {
@@ -292,11 +298,12 @@ void fcos_do_post(void *display)
             fcos_post_process(output, &image_info, results);//do post process
             fcos_work_deque.pop_front();
             sp_display_draw_rect(display, 0, 0, 0, 0, 3, 1, 0x00000000, 2);//flush display
-            // fps
-            auto delta_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - stime).count();
-            double fps = 1000.0 / delta_time;
-            printf("fps:%lf,processing time:%ld\n", fps, delta_time);
-            // fps
+            if (debug) {
+                // fps
+                auto delta_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - stime).count();
+                double fps = 1000.0 / delta_time;
+                printf("fps:%lf,processing time:%ld\n", fps, delta_time);
+            }
             for (size_t i = 0; i < results.size(); i++)
             {
                 sp_display_draw_rect(display, results[i].bbox.xmin, results[i].bbox.ymin,
@@ -376,11 +383,12 @@ void yolov5_do_post(void *display)
                 }
             }
             yolo5_nms(parse_results, nms_threshold_, nms_top_k_, results, false);//do post process part 2
-            // fps
-            auto delta_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - stime).count();
-            double fps = 1000.0 / delta_time;
-            printf("%s fps:%lf,processing time :%ld\n", __func__, fps, delta_time);
-            // fps
+            if (debug) {
+                // fps
+                auto delta_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - stime).count();
+                double fps = 1000.0 / delta_time;
+                printf("%s fps:%lf,processing time :%ld\n", __func__, fps, delta_time);
+            }
             yolov5_work_deque.pop_front();
             sp_display_draw_rect(display, 0, 0, 0, 0, 3, 1, 0x00000000, 2);//flush display
             for (size_t i = 0; i < results.size(); i++)
@@ -466,11 +474,12 @@ void yolov3_do_post(void *display)
                 }
             }
             yolo3_nms(parse_results, yolov3_nms_threshold_, yolov3_nms_top_k_, results, false);//do post process part 2
-            // fps
-            auto delta_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - stime).count();
-            double fps = 1000.0 / delta_time;
-            printf("%s fps:%lf,processing time :%ld\n", __func__, fps, delta_time);
-            // fps
+            if (debug) {
+                // fps
+                auto delta_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - stime).count();
+                double fps = 1000.0 / delta_time;
+                printf("%s fps:%lf,processing time :%ld\n", __func__, fps, delta_time);
+            }
             yolov3_work_deque.pop_front();
             sp_display_draw_rect(display, 0, 0, 0, 0, 3, 1, 0x00000000, 2);//flush display
             for (size_t i = 0; i < results.size(); i++)
