@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdint.h>
+
 #include <sp_vio.h>
 #include <sp_sys.h>
 #include <sp_display.h>
