@@ -19,11 +19,15 @@ struct arguments
     char *output_path;
     int output_height;
     int output_width;
+    int input_height;
+    int input_width;
 };
 static struct argp_option options[] = {
     {"output", 'o', "path", 0, "output file path"},
-    {"width", 'w', "width", 0, "width of output video"},
-    {"height", 'h', "height", 0, "height of output video"},
+    {"owidth", 'w', "width", 0, "width of output video"},
+    {"oheight", 'h', "height", 0, "height of output video"},
+    {"iwidth", 0x81, "width", 0, "sensor output width"},
+    {"iheight", 0x82, "height", 0, "sensor output height"},
     {0}};
 static error_t parse_opt(int key, char *arg, struct argp_state *state)
 {
@@ -39,9 +43,15 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
     case 'h':
         args->output_height = atoi(arg);
         break;
+    case 0x81:
+        args->input_width = atoi(arg);
+        break;
+    case 0x82:
+        args->input_height = atoi(arg);
+        break;
     case ARGP_KEY_END:
     {
-        if (state->argc != 7)
+        if (state->argc != 11)
         {
             argp_state_help(state, stdout, ARGP_HELP_STD_HELP);
         }
@@ -64,27 +74,34 @@ int main(int argc, char **argv)
     signal(SIGINT, signal_handler_func);
     int ret = 0, i = 0;
     int stream_frame_size = 0;
-    //parse args
+    // parse args
     struct arguments args;
     memset(&args, 0, sizeof(args));
     argp_parse(&argp, argc, argv, 0, 0, &args);
-
-    int width = args.output_width, height = args.output_height;
+    int width = args.output_width;
+    int height = args.output_height;
     // int widths[1] = {width};
     // int heights[1] = {height};
-    //init module
+
+    sp_sensors_parameters parms;
+    parms.fps = -1;
+    parms.raw_height = args.input_height;
+    parms.raw_width = args.input_width;
+
+    // init module
     void *vio_object = sp_init_vio_module();
     void *encoder = sp_init_encoder_module();
     char *stream_buffer = malloc(sizeof(char) * STREAM_FRAME_SIZE);
-    //open camera
-    ret = sp_open_camera(vio_object, 0, -1, 1, &width, &height);
+    /** open camera **/
+    // ret = sp_open_camera(vio_object, 0, -1, 1, &width, &height);
+    ret = sp_open_camera_v2(vio_object, 0, -1, 1, &parms, &width, &height);
     if (ret != 0)
     {
         printf("[Error] sp_open_camera failed!\n");
         goto exit;
     }
     printf("sp_open_camera success!\n");
-    //begin encode
+    /** init encoder **/
     ret = sp_start_encode(encoder, 0, SP_ENCODER_H264, width, height, 8000);
     if (ret != 0)
     {
@@ -92,7 +109,7 @@ int main(int argc, char **argv)
         goto exit;
     }
     printf("sp_start_encode success!\n");
-    //bind camera(vio) and decoder
+    // bind camera(vio) and decoder
     ret = sp_module_bind(vio_object, SP_MTYPE_VIO, encoder, SP_MTYPE_ENCODER);
     if (ret != 0)
     {
@@ -105,14 +122,14 @@ int main(int argc, char **argv)
     while (!is_stop)
     {
         memset(stream_buffer, 0, STREAM_FRAME_SIZE);
-        stream_frame_size = sp_encoder_get_stream(encoder, stream_buffer);//get stream from encoder
+        stream_frame_size = sp_encoder_get_stream(encoder, stream_buffer); // get stream from encoder
         // printf("size:%d\n", stream_frame_size);
         if (stream_frame_size == -1)
         {
             printf("encoder_get_image error! ret = %d,i = %d\n", ret, i++);
             goto exit;
         }
-        fwrite(stream_buffer, sizeof(char), stream_frame_size, stream);//write stream to file
+        fwrite(stream_buffer, sizeof(char), stream_frame_size, stream); // write stream to file
     }
 exit:
     /* file close*/

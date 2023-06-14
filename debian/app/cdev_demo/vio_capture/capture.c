@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <math.h>
 
 #include <sp_vio.h>
 #include <sp_sys.h>
@@ -11,6 +12,25 @@
 #include <sys/stat.h>
 
 #define clear() printf("\033[H\033[J")
+
+double get_stride(int width, int bit)
+{
+    double temp = (width * bit / 8.0 / 16.0); // Determining whether alignment is possible
+    double fractpart;
+    double intpart;
+    double result;
+    // get fractpart
+    fractpart = modf(temp, &intpart);
+
+    if (fractpart > 0)
+    {
+        // Rounding
+        return ceil(temp) * 16;
+    }
+
+    return temp * 16;
+}
+
 struct arguments
 {
     int width;
@@ -63,27 +83,34 @@ int main(int argc, char **argv)
     struct arguments args;
     memset(&args, 0, sizeof(args));
     argp_parse(&argp, argc, argv, 0, 0, &args);
-    int widths[] = {0};
-    int heights[] = {0};
-    int raw_size = (args.width * args.height * args.bit) / 8;//raw size = w x h x bit 
+    int widths[] = {args.width};
+    int heights[] = {args.height};
+    double stride = get_stride(args.width, args.bit);
+    // printf("Stride:%.2f\n",stride);
+    int raw_size = (stride * args.height); // raw_size = stride * height, stride = width * bit / 8 (align with 16)
     int yuv_size = FRAME_BUFFER_SIZE(args.width, args.height);
+    sp_sensors_parameters parms;
+    parms.fps = -1;
+    parms.raw_height = args.height;
+    parms.raw_width = args.width;
     char ch = 0;
     int is_enter = 0;
     int yuv_count = 0;
     int raw_count = 0;
     char yuv_filename[50];
     char raw_filename[50];
-    //init camera
+    // init camera
     void *camera = sp_init_vio_module();
-    //open camera
-    ret = sp_open_camera(camera, 0, -1, 1, &widths[0], &heights[0]);
-    sleep(2);//wait for isp stability
+    // open camera
+    // ret = sp_open_camera(camera, 0, -1, 1, &widths[0], &heights[0]);
+    ret = sp_open_camera_v2(camera, 0, -1, 1, &parms, widths, heights);
+    sleep(2); // wait for isp stability
     if (ret != 0)
     {
         printf("[Error] sp_open_camera failed!\n");
         goto error1;
     }
-    //malloc buffer
+    // malloc buffer
     char *raw_data = malloc(raw_size * sizeof(char));
     char *yuv_data = malloc(yuv_size * sizeof(char));
 

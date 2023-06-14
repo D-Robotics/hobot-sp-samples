@@ -5,7 +5,7 @@ SRC_PATH := $(CURDIR)
 SRCS := $(foreach cf, $(SRC_PATH), $(wildcard $(cf)/*.c))
 OBJS :=  $(SRCS:.c=.o)
 
-LDFLAGS := -lspcdev
+LDFLAGS := -lspcdev -lm
 
 .PHONY: all clean
 

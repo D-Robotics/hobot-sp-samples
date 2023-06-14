@@ -304,7 +304,7 @@ if __name__ == '__main__':
     input_shape = (h, w)
     # Open f37 camera
     # For the meaning of parameters, please refer to the relevant documents of camera
-    cam.open_cam(0, -1, 30, [1920, w, disp_w], [1080, h, disp_h])
+    cam.open_cam(0, -1, 30, [w, disp_w], [h, disp_h])
 
     # Get HDMI display object
     disp = srcampy.Display()
