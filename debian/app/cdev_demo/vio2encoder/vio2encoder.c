@@ -114,7 +114,7 @@ int main(int argc, char **argv)
     if (ret != 0)
     {
         printf("sp_module_bind(vio -> encoder) failed\n");
-        goto exit;
+        goto exit1;
     }
     printf("sp_module_bind(vio -> encoder) success!\n");
 
@@ -127,10 +127,12 @@ int main(int argc, char **argv)
         if (stream_frame_size == -1)
         {
             printf("encoder_get_image error! ret = %d,i = %d\n", ret, i++);
-            goto exit;
+            goto exit1;
         }
         fwrite(stream_buffer, sizeof(char), stream_frame_size, stream); // write stream to file
     }
+exit1:
+    sp_module_unbind(vio_object, SP_MTYPE_VIO, encoder, SP_MTYPE_ENCODER);
 exit:
     /* file close*/
     fclose(stream);
