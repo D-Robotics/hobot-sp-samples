@@ -114,7 +114,7 @@ def get_hw(pro):
 
 if __name__ == '__main__':
     # test classification result
-    models = dnn.load('../models/mobilenetv1_224x224_nv12.bin')
+    models = dnn.load('../models/vargconvnet_224x224_nv12.bin')
     # test input and output properties
     print("=" * 10, "inputs[0] properties", "=" * 10)
     print_properties(models[0].inputs[0].properties)
@@ -143,7 +143,7 @@ if __name__ == '__main__':
     classification_postprocess_info.ori_width = org_width
     classification_postprocess_info.score_threshold = 0.3
     classification_postprocess_info.nms_threshold = 0
-    classification_postprocess_info.nms_top_k = 500
+    classification_postprocess_info.nms_top_k = 1
     classification_postprocess_info.is_pad_resize = 0
 
     output_tensors = (hbDNNTensor_t * len(models[0].outputs))()

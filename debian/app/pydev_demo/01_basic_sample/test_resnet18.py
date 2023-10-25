@@ -114,7 +114,7 @@ def get_hw(pro):
 
 if __name__ == '__main__':
     # test classification result
-    models = dnn.load('../models/mobilenetv1_224x224_nv12.bin')
+    models = dnn.load('../models/resnet18_224x224_nv12.bin')
     # test input and output properties
     print("=" * 10, "inputs[0] properties", "=" * 10)
     print_properties(models[0].inputs[0].properties)

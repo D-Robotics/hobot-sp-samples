@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 
-from hobot_dnn import pyeasy_dnn as dnn
 import numpy as np
 import cv2
-
+from hobot_dnn import pyeasy_dnn as dnn
 import time
 import ctypes
 import json 
 
-output_tensors = None
-
-fcos_postprocess_info = None
 
 class hbSysMem_t(ctypes.Structure):
     _fields_ = [
@@ -60,7 +56,7 @@ class hbDNNTensor_t(ctypes.Structure):
     ]
 
 
-class ClassificationPostProcessInfo_t(ctypes.Structure):
+class CenternetPostProcessInfo_t(ctypes.Structure):
     _fields_ = [
         ("height",ctypes.c_int),
         ("width",ctypes.c_int),
@@ -72,11 +68,10 @@ class ClassificationPostProcessInfo_t(ctypes.Structure):
         ("is_pad_resize",ctypes.c_int)
     ]
 
-
 libpostprocess = ctypes.CDLL('/usr/lib/libpostprocess.so') 
 
-get_Postprocess_result = libpostprocess.ClassificationPostProcess
-get_Postprocess_result.argtypes = [ctypes.POINTER(ClassificationPostProcessInfo_t)]  
+get_Postprocess_result = libpostprocess.CenternetPostProcess
+get_Postprocess_result.argtypes = [ctypes.POINTER(CenternetPostProcessInfo_t)]  
 get_Postprocess_result.restype = ctypes.c_char_p  
 
 def get_TensorLayout(Layout):
@@ -84,6 +79,7 @@ def get_TensorLayout(Layout):
         return int(2)
     else:
         return int(0)
+
 
 def bgr2nv12_opencv(image):
     height, width = image.shape[0], image.shape[1]
@@ -98,12 +94,6 @@ def bgr2nv12_opencv(image):
     nv12[height * width:] = uv_packed
     return nv12
 
-def print_properties(pro):
-    print("tensor type:", pro.tensor_type)
-    print("data type:", pro.dtype)
-    print("layout:", pro.layout)
-    print("shape:", pro.shape)
-
 
 def get_hw(pro):
     if pro.layout == "NCHW":
@@ -112,39 +102,43 @@ def get_hw(pro):
         return pro.shape[1], pro.shape[2]
 
 
+def print_properties(pro):
+    print("tensor type:", pro.tensor_type)
+    print("data type:", pro.dtype)
+    print("layout:", pro.layout)
+    print("shape:", pro.shape)
+
+
 if __name__ == '__main__':
-    # test classification result
-    models = dnn.load('../models/mobilenetv1_224x224_nv12.bin')
-    # test input and output properties
-    print("=" * 10, "inputs[0] properties", "=" * 10)
+    models = dnn.load('../models/centernet_resnet101_512x512_nv12.bin')
+    # 打印输入 tensor 的属性
     print_properties(models[0].inputs[0].properties)
-    print("inputs[0] name is:", models[0].inputs[0].name)
+    # 打印输出 tensor 的属性
+    print(len(models[0].outputs))
+    for output in models[0].outputs:
+        print_properties(output.properties)
 
-    print("=" * 10, "outputs[0] properties", "=" * 10)
-    print_properties(models[0].outputs[0].properties)
-    print("outputs[0] name is:", models[0].outputs[0].name)
-
-
-    img_file = cv2.imread('./zebra_cls.jpg')
+    img_file = cv2.imread('./kite.jpg')
     h, w = get_hw(models[0].inputs[0].properties)
     des_dim = (w, h)
     resized_data = cv2.resize(img_file, des_dim, interpolation=cv2.INTER_AREA)
     nv12_data = bgr2nv12_opencv(resized_data)
-
-    outputs = models[0].forward(nv12_data)
-
     t0 = time.time()
+    outputs = models[0].forward(nv12_data)
+    t1 = time.time()
+    print("inferece time is :", (t1 - t0))
+
     # 获取结构体信息
-    classification_postprocess_info = ClassificationPostProcessInfo_t()
-    classification_postprocess_info.height = h
-    classification_postprocess_info.width = w
+    centernet_postprocess_info = CenternetPostProcessInfo_t()
+    centernet_postprocess_info.height = h
+    centernet_postprocess_info.width = w
     org_height, org_width = img_file.shape[0:2]
-    classification_postprocess_info.ori_height = org_height
-    classification_postprocess_info.ori_width = org_width
-    classification_postprocess_info.score_threshold = 0.3
-    classification_postprocess_info.nms_threshold = 0
-    classification_postprocess_info.nms_top_k = 500
-    classification_postprocess_info.is_pad_resize = 0
+    centernet_postprocess_info.ori_height = org_height
+    centernet_postprocess_info.ori_width = org_width
+    centernet_postprocess_info.score_threshold = 0.4 
+    centernet_postprocess_info.nms_threshold = 0.45
+    centernet_postprocess_info.nms_top_k = 20
+    centernet_postprocess_info.is_pad_resize = 0
 
     output_tensors = (hbDNNTensor_t * len(models[0].outputs))()
     for i in range(len(models[0].outputs)):
@@ -159,25 +153,40 @@ if __name__ == '__main__':
             output_tensors[i].sysMem[0].virAddr = ctypes.cast(outputs[i].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), ctypes.c_void_p)
             
         for j in range(len(outputs[i].properties.shape)):
-            output_tensors[i].properties.validShape.numDimensions = len(outputs[i].properties.shape)
             output_tensors[i].properties.validShape.dimensionSize[j] = outputs[i].properties.shape[j]
         
-        libpostprocess.ClassificationDoProcess(output_tensors[i], ctypes.pointer(classification_postprocess_info), i)
+    libpostprocess.CenternetdoProcess(output_tensors[0], output_tensors[1], output_tensors[2], ctypes.pointer(centernet_postprocess_info), 0)
 
-    result_str = get_Postprocess_result(ctypes.pointer(classification_postprocess_info))  
+    result_str = get_Postprocess_result(ctypes.pointer(centernet_postprocess_info))  
     result_str = result_str.decode('utf-8')  
-    t1 = time.time()
-    print("postprocess time is :", (t1 - t0))
+    t2 = time.time()
+    print("postprocess time is :", (t2 - t1))
 
+    t0 = time.time()
     # draw result
     # 解析JSON字符串  
-    data = json.loads(result_str[25:])  
+    data = json.loads(result_str[20:])  
 
     # 遍历每一个结果  
     for result in data:  
-        prob = result['prob']  # 得分  
-        label = result['label']  # id  
-        name = result['class_name']  # 类别名称  
+        bbox = result['bbox']  # 矩形框位置信息  
+        score = result['score']  # 得分  
+        id = result['id']  # id  
+        name = result['name']  # 类别名称  
     
         # 打印信息  
-        print(f"cls id: {label}, Confidence: {prob}, class_name: {name}")
+        print(f"bbox: {bbox}, score: {score}, id: {id}, name: {name}")
+
+        # 在图片上画出边界框  
+        cv2.rectangle(img_file, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), (0, 255, 0), 2)  
+    
+        # 在边界框上方显示类别名称和得分  
+        font = cv2.FONT_HERSHEY_SIMPLEX  
+        cv2.putText(img_file, f'{name} {score:.2f}', (int(bbox[0]), int(bbox[1]) - 10), font, 0.5, (0, 255, 0), 1)  
+  
+    cv2.imwrite('output_image.jpg', img_file)
+
+    t1 = time.time()
+
+    print("draw result time is :", (t1 - t0))
+

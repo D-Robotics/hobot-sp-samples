@@ -10,9 +10,97 @@ import cv2
 import colorsys
 from time import time
 
+import ctypes
+import json 
+
 def signal_handler(signal, frame):
     print("\nExiting program")
     sys.exit(0)
+
+output_tensors = None
+
+fcos_postprocess_info = None
+
+class hbSysMem_t(ctypes.Structure):
+    _fields_ = [
+        ("phyAddr",ctypes.c_double),
+        ("virAddr",ctypes.c_void_p),
+        ("memSize",ctypes.c_int)
+    ]
+
+class hbDNNQuantiShift_yt(ctypes.Structure):
+    _fields_ = [
+        ("shiftLen",ctypes.c_int),
+        ("shiftData",ctypes.c_char_p)
+    ]
+
+class hbDNNQuantiScale_t(ctypes.Structure):
+    _fields_ = [
+        ("scaleLen",ctypes.c_int),
+        ("scaleData",ctypes.POINTER(ctypes.c_float)),
+        ("zeroPointLen",ctypes.c_int),
+        ("zeroPointData",ctypes.c_char_p)
+    ]    
+
+class hbDNNTensorShape_t(ctypes.Structure):
+    _fields_ = [
+        ("dimensionSize",ctypes.c_int * 8),
+        ("numDimensions",ctypes.c_int)
+    ]
+
+class hbDNNTensorProperties_t(ctypes.Structure):
+    _fields_ = [
+        ("validShape",hbDNNTensorShape_t),
+        ("alignedShape",hbDNNTensorShape_t),
+        ("tensorLayout",ctypes.c_int),
+        ("tensorType",ctypes.c_int),
+        ("shift",hbDNNQuantiShift_yt),
+        ("scale",hbDNNQuantiScale_t),
+        ("quantiType",ctypes.c_int),
+        ("quantizeAxis", ctypes.c_int),
+        ("alignedByteSize",ctypes.c_int),
+        ("stride",ctypes.c_int * 8)
+    ]
+
+class hbDNNTensor_t(ctypes.Structure):
+    _fields_ = [
+        ("sysMem",hbSysMem_t * 4),
+        ("properties",hbDNNTensorProperties_t)
+    ]
+
+
+class FcosPostProcessInfo_t(ctypes.Structure):
+    _fields_ = [
+        ("height",ctypes.c_int),
+        ("width",ctypes.c_int),
+        ("ori_height",ctypes.c_int),
+        ("ori_width",ctypes.c_int),
+        ("score_threshold",ctypes.c_float),
+        ("nms_threshold",ctypes.c_float),
+        ("nms_top_k",ctypes.c_int),
+        ("is_pad_resize",ctypes.c_int)
+    ]
+
+
+libpostprocess = ctypes.CDLL('/usr/lib/libpostprocess.so') 
+
+get_Postprocess_result = libpostprocess.FcosPostProcess
+get_Postprocess_result.argtypes = [ctypes.POINTER(FcosPostProcessInfo_t)]  
+get_Postprocess_result.restype = ctypes.c_char_p  
+
+def get_TensorLayout(Layout):
+    if Layout == "NCHW":
+        return int(2)
+    else:
+        return int(0)
+
+def limit_display_cord(coor):
+    coor[0] = max(min(1920, coor[0]), 0)
+    # min coor is set to 2 not 0, leaving room for string display
+    coor[1] = max(min(1080, coor[1]), 2)
+    coor[2] = max(min(1920, coor[2]), 0)
+    coor[3] = max(min(1080, coor[3]), 0)
+    return coor
 
 # detection model class names
 def get_classes():
@@ -58,40 +146,8 @@ def bgr2nv12_opencv(image):
     nv12[height * width:] = uv_packed
     return nv12
 
-def postprocess(model_output,
-                model_hw_shape,
-                origin_image=None,
-                origin_img_shape=None,
-                score_threshold=0.5,
-                nms_threshold=0.6,
-                dump_image=False):
-    input_height = model_hw_shape[0]
-    input_width = model_hw_shape[1]
-    if origin_image is not None:
-        origin_image_shape = origin_image.shape[0:2]
-    else:
-        origin_image_shape = origin_img_shape
 
-    prediction_bbox = decode(outputs=model_output,
-                             score_threshold=score_threshold,
-                             origin_shape=origin_image_shape,
-                             input_size=512)
-
-    prediction_bbox = nms(prediction_bbox, iou_threshold=nms_threshold)
-
-    prediction_bbox = np.array(prediction_bbox)
-    topk = min(prediction_bbox.shape[0], 1000)
-
-    if topk != 0:
-        idx = np.argpartition(prediction_bbox[..., 4], -topk)[-topk:]
-        prediction_bbox = prediction_bbox[idx]
-
-    if dump_image and origin_image is not None:
-        draw_bboxs(origin_image, prediction_bbox)
-    return prediction_bbox
-
-
-def draw_bboxs(image, bboxes, gt_classes_index=None, classes=get_classes()):
+def draw_bboxs(image, bboxes, classes=get_classes()):
     """draw the bboxes in the original image
     """
     num_classes = len(classes)
@@ -105,20 +161,19 @@ def draw_bboxs(image, bboxes, gt_classes_index=None, classes=get_classes()):
     fontScale = 0.5
     bbox_thick = int(0.6 * (image_h + image_w) / 600)
 
-    for i, bbox in enumerate(bboxes):
-        coor = np.array(bbox[:4], dtype=np.int32)
+    for i, result in enumerate(bboxes):
+        bbox = result['bbox']  # 矩形框位置信息  
+        score = result['score']  # 得分  
+        id = int(result['id'])  # id  
+        name = result['name']  # 类别名称 
 
-        if gt_classes_index == None:
-            class_index = int(bbox[5])
-            score = bbox[4]
-        else:
-            class_index = gt_classes_index[i]
-            score = 1
+        # coor = limit_display_cord(bbox)
+        coor = [round(i) for i in bbox]
 
-        bbox_color = colors[class_index]
+        bbox_color = colors[id]
         c1, c2 = (coor[0], coor[1]), (coor[2], coor[3])
         cv2.rectangle(image, c1, c2, bbox_color, bbox_thick)
-        classes_name = classes[class_index]
+        classes_name = name
         bbox_mess = '%s: %.2f' % (classes_name, score)
         t_size = cv2.getTextSize(bbox_mess,
                                  0,
@@ -136,109 +191,6 @@ def draw_bboxs(image, bboxes, gt_classes_index=None, classes=get_classes()):
             classes_name, score))
     #    cv2.imwrite("demo.jpg", image)
     return image
-
-
-def decode(outputs, score_threshold, origin_shape, input_size=512):
-    def _distance2bbox(points, distance):
-        x1 = points[..., 0] - distance[..., 0]
-        y1 = points[..., 1] - distance[..., 1]
-        x2 = points[..., 0] + distance[..., 2]
-        y2 = points[..., 1] + distance[..., 3]
-        return np.stack([x1, y1, x2, y2], -1)
-
-    def _scores(cls, ce):
-        cls = 1 / (1 + np.exp(-cls))
-        ce = 1 / (1 + np.exp(-ce))
-        return np.sqrt(ce * cls)
-
-    def _bbox(bbox, stride, origin_shape, input_size):
-        h, w = bbox.shape[1:3]
-        yv, xv = np.meshgrid(np.arange(h), np.arange(w))
-        xy = (np.stack((yv, xv), 2) + 0.5) * stride
-        bbox = _distance2bbox(xy, bbox)
-        # opencv read, shape[1] is w, shape[0] is h
-        scale_w = origin_shape[1] / input_size
-        scale_h = origin_shape[0] / input_size
-        scale = max(origin_shape[0], origin_shape[1]) / input_size
-        # origin img is pad resized
-        #bbox = bbox * scale
-        # origin img is resized
-        bbox = bbox * [scale_w, scale_h, scale_w, scale_h]
-        return bbox
-
-    bboxes = list()
-    strides = [8, 16, 32, 64, 128]
-
-    for i in range(len(strides)):
-        cls = outputs[i].buffer
-        bbox = outputs[i + 5].buffer
-        ce = outputs[i + 10].buffer
-        scores = _scores(cls, ce)
-
-        classes = np.argmax(scores, axis=-1)
-        classes = np.reshape(classes, [-1, 1])
-        max_score = np.max(scores, axis=-1)
-        max_score = np.reshape(max_score, [-1, 1])
-        bbox = _bbox(bbox, strides[i], origin_shape, input_size)
-        bbox = np.reshape(bbox, [-1, 4])
-
-        pred_bbox = np.concatenate([bbox, max_score, classes], axis=1)
-
-        index = pred_bbox[..., 4] > score_threshold
-        pred_bbox = pred_bbox[index]
-        bboxes.append(pred_bbox)
-
-    return np.concatenate(bboxes)
-
-
-def nms(bboxes, iou_threshold, sigma=0.3, method='nms'):
-    def bboxes_iou(boxes1, boxes2):
-        boxes1 = np.array(boxes1)
-        boxes2 = np.array(boxes2)
-        boxes1_area = (boxes1[..., 2] - boxes1[..., 0]) * \
-                      (boxes1[..., 3] - boxes1[..., 1])
-        boxes2_area = (boxes2[..., 2] - boxes2[..., 0]) * \
-                      (boxes2[..., 3] - boxes2[..., 1])
-        left_up = np.maximum(boxes1[..., :2], boxes2[..., :2])
-        right_down = np.minimum(boxes1[..., 2:], boxes2[..., 2:])
-        inter_section = np.maximum(right_down - left_up, 0.0)
-        inter_area = inter_section[..., 0] * inter_section[..., 1]
-        union_area = boxes1_area + boxes2_area - inter_area
-        ious = np.maximum(1.0 * inter_area / union_area,
-                          np.finfo(np.float32).eps)
-
-        return ious
-
-    classes_in_img = list(set(bboxes[:, 5]))
-    best_bboxes = []
-
-    for cls in classes_in_img:
-        cls_mask = (bboxes[:, 5] == cls)
-        cls_bboxes = bboxes[cls_mask]
-
-        while len(cls_bboxes) > 0:
-            max_ind = np.argmax(cls_bboxes[:, 4])
-            best_bbox = cls_bboxes[max_ind]
-            best_bboxes.append(best_bbox)
-            cls_bboxes = np.concatenate(
-                [cls_bboxes[:max_ind], cls_bboxes[max_ind + 1:]])
-            iou = bboxes_iou(best_bbox[np.newaxis, :4], cls_bboxes[:, :4])
-            weight = np.ones((len(iou),), dtype=np.float32)
-
-            assert method in ['nms', 'soft-nms']
-
-            if method == 'nms':
-                iou_mask = iou > iou_threshold
-                weight[iou_mask] = 0.0
-            if method == 'soft-nms':
-                weight = np.exp(-(1.0 * iou ** 2 / sigma))
-
-            cls_bboxes[:, 4] = cls_bboxes[:, 4] * weight
-            score_mask = cls_bboxes[:, 4] > 0.
-            cls_bboxes = cls_bboxes[score_mask]
-
-    return best_bboxes
-
 
 def get_display_res():
     if os.path.exists("/usr/bin/get_hdmi_res") == False:
@@ -290,6 +242,33 @@ if __name__ == '__main__':
     disp_w, disp_h = get_display_res()
     disp.display(0, disp_w, disp_h)
 
+    # 获取结构体信息
+    fcos_postprocess_info = FcosPostProcessInfo_t()
+    fcos_postprocess_info.height = 512
+    fcos_postprocess_info.width = 512
+    fcos_postprocess_info.ori_height = disp_h
+    fcos_postprocess_info.ori_width = disp_w
+    fcos_postprocess_info.score_threshold = 0.5 
+    fcos_postprocess_info.nms_threshold = 0.6
+    fcos_postprocess_info.nms_top_k = 5
+    fcos_postprocess_info.is_pad_resize = 0
+
+    output_tensors = (hbDNNTensor_t * len(models[0].outputs))()
+
+    for i in range(len(models[0].outputs)):
+        output_tensors[i].properties.tensorLayout = get_TensorLayout(models[0].outputs[i].properties.layout)
+        #print(output_tensors[i].properties.tensorLayout)
+        if (len( models[0].outputs[i].properties.scale_data) == 0):
+            output_tensors[i].properties.quantiType = 0
+        else:
+            output_tensors[i].properties.quantiType = 2  
+            scale_data_tmp = models[0].outputs[i].properties.scale_data.reshape(1, 1, 1, models[0].outputs[i].properties.shape[3])  
+            output_tensors[i].properties.scale.scaleData = scale_data_tmp.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+            
+        for j in range(len(models[0].outputs[i].properties.shape)):
+            output_tensors[i].properties.validShape.dimensionSize[j] = models[0].outputs[i].properties.shape[j]
+            output_tensors[i].properties.alignedShape.dimensionSize[j] = models[0].outputs[i].properties.shape[j]
+
     start_time = time()
     image_counter = 0
     while True:
@@ -307,17 +286,41 @@ if __name__ == '__main__':
 
         nv12_data = bgr2nv12_opencv(resized_data)
 
+        t0 = time()
         # Forward
         outputs = models[0].forward(nv12_data)
+        t1 = time()
+        # print("forward time is :", (t1 - t0))
+
         # Do post process
-        input_shape = (h, w)
-        prediction_bbox = postprocess(outputs, input_shape, origin_img_shape=(disp_h, disp_w))
+        strides = [8, 16, 32, 64, 128]
+        for i in range(len(strides)):
+            if (output_tensors[i].properties.quantiType == 0):
+                output_tensors[i].sysMem[0].virAddr = ctypes.cast(outputs[i].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), ctypes.c_void_p)
+                output_tensors[i + 5].sysMem[0].virAddr = ctypes.cast(outputs[i + 5].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), ctypes.c_void_p)
+                output_tensors[i + 10].sysMem[0].virAddr = ctypes.cast(outputs[i + 10].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), ctypes.c_void_p)
+            else:      
+                output_tensors[i].sysMem[0].virAddr = ctypes.cast(outputs[i].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), ctypes.c_void_p)
+                output_tensors[i + 5].sysMem[0].virAddr = ctypes.cast(outputs[i + 5].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), ctypes.c_void_p)
+                output_tensors[i + 10].sysMem[0].virAddr = ctypes.cast(outputs[i + 10].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), ctypes.c_void_p)
+
+            libpostprocess.FcosdoProcess(output_tensors[i], output_tensors[i + 5], output_tensors[i + 10], ctypes.pointer(fcos_postprocess_info), i)
+
+        result_str = get_Postprocess_result(ctypes.pointer(fcos_postprocess_info))  
+        result_str = result_str.decode('utf-8')  
+        t2 = time()
+        # print("FcosdoProcess time is :", (t2 - t1))
+        # print(result_str)
+
+        # draw result
+        # 解析JSON字符串  
+        data = json.loads(result_str[14:])  
 
         if frame.shape[0]!=disp_h or frame.shape[1]!=disp_w:
             frame = cv2.resize(frame, (disp_w,disp_h), interpolation=cv2.INTER_AREA)
 
         # Draw bboxs
-        box_bgr = draw_bboxs(frame, prediction_bbox)
+        box_bgr = draw_bboxs(frame, data)
 
         # cv2.imwrite("imf.jpg", box_bgr)
 

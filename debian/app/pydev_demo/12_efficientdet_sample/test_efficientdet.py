@@ -2,12 +2,14 @@
 
 import numpy as np
 import cv2
-
 from hobot_dnn import pyeasy_dnn as dnn
-
 import time
 import ctypes
 import json 
+import math  
+
+def align_to_4(num):  
+    return 4 * math.ceil(num / 4) 
 
 class hbSysMem_t(ctypes.Structure):
     _fields_ = [
@@ -57,7 +59,7 @@ class hbDNNTensor_t(ctypes.Structure):
     ]
 
 
-class Yolov3PostProcessInfo_t(ctypes.Structure):
+class EfficentdetPostProcessInfo_t(ctypes.Structure):
     _fields_ = [
         ("height",ctypes.c_int),
         ("width",ctypes.c_int),
@@ -71,8 +73,8 @@ class Yolov3PostProcessInfo_t(ctypes.Structure):
 
 libpostprocess = ctypes.CDLL('/usr/lib/libpostprocess.so') 
 
-get_Postprocess_result = libpostprocess.Yolov3PostProcess
-get_Postprocess_result.argtypes = [ctypes.POINTER(Yolov3PostProcessInfo_t)]  
+get_Postprocess_result = libpostprocess.EfficientdetPostProcess
+get_Postprocess_result.argtypes = [ctypes.POINTER(EfficentdetPostProcessInfo_t)]  
 get_Postprocess_result.restype = ctypes.c_char_p  
 
 def get_TensorLayout(Layout):
@@ -80,6 +82,7 @@ def get_TensorLayout(Layout):
         return int(2)
     else:
         return int(0)
+
 
 def bgr2nv12_opencv(image):
     height, width = image.shape[0], image.shape[1]
@@ -110,7 +113,7 @@ def print_properties(pro):
 
 
 if __name__ == '__main__':
-    models = dnn.load('../models/yolov3_416x416_nv12.bin')
+    models = dnn.load('../models/efficientdetd0_512x512_nv12.bin')
     # 打印输入 tensor 的属性
     print_properties(models[0].inputs[0].properties)
     # 打印输出 tensor 的属性
@@ -129,48 +132,52 @@ if __name__ == '__main__':
     print("inferece time is :", (t1 - t0))
 
     # 获取结构体信息
-    yolov3_postprocess_info = Yolov3PostProcessInfo_t()
-    yolov3_postprocess_info.height = h
-    yolov3_postprocess_info.width = w
+    efficentdet_postprocess_info = EfficentdetPostProcessInfo_t()
+    efficentdet_postprocess_info.height = h
+    efficentdet_postprocess_info.width = w
     org_height, org_width = img_file.shape[0:2]
-    yolov3_postprocess_info.ori_height = org_height
-    yolov3_postprocess_info.ori_width = org_width
-    yolov3_postprocess_info.score_threshold = 0.3 
-    yolov3_postprocess_info.nms_threshold = 0.45
-    yolov3_postprocess_info.nms_top_k = 20
-    yolov3_postprocess_info.is_pad_resize = 0
+    efficentdet_postprocess_info.ori_height = org_height
+    efficentdet_postprocess_info.ori_width = org_width
+    efficentdet_postprocess_info.score_threshold = 0.4 
+    efficentdet_postprocess_info.nms_threshold = 0.45
+    efficentdet_postprocess_info.nms_top_k = 200
+    efficentdet_postprocess_info.is_pad_resize = 0
+
     output_tensors = (hbDNNTensor_t * len(models[0].outputs))()
     for i in range(len(models[0].outputs)):
         output_tensors[i].properties.tensorLayout = get_TensorLayout(outputs[i].properties.layout)
         # print(output_tensors[i].properties.tensorLayout)
-        if output_tensors[i].properties.tensorLayout == 2:
-            output_tensors[i].properties.quantizeAxis = 1
-        else:
-            output_tensors[i].properties.quantizeAxis = 3
-        
         if (len(outputs[i].properties.scale_data) == 0):
             output_tensors[i].properties.quantiType = 0
-            output_tensors[i].sysMem[0].virAddr = ctypes.cast(outputs[i].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), ctypes.c_void_p)
         else:
-            output_tensors[i].properties.quantiType = 2       
-            output_tensors[i].properties.scale.scaleData = outputs[i].properties.scale_data.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-            output_tensors[i].sysMem[0].virAddr = ctypes.cast(outputs[i].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), ctypes.c_void_p)
+            output_tensors[i].properties.quantiType = 2  
+            scale_data_tmp = outputs[i].properties.scale_data.reshape(1, 1, 1, models[0].outputs[i].properties.shape[3])  
+            output_tensors[i].properties.scale.scaleData = scale_data_tmp.ctypes.data_as(ctypes.POINTER(ctypes.c_float))     
+
         for j in range(len(outputs[i].properties.shape)):
-            output_tensors[i].properties.validShape.dimensionSize[j] = outputs[i].properties.shape[j]
-            output_tensors[i].properties.alignedShape.dimensionSize[j] = outputs[i].properties.shape[j]
+            output_tensors[i].properties.validShape.dimensionSize[j] = models[0].outputs[i].properties.shape[j]
+            output_tensors[i].properties.alignedShape.dimensionSize[j] = models[0].outputs[i].properties.shape[j]
+   
+    strides = [8, 16, 32, 64, 128]
+    for i in range(len(strides)):
+        if (output_tensors[i].properties.quantiType == 0):
+            output_tensors[i].sysMem[0].virAddr = ctypes.cast(outputs[i].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), ctypes.c_void_p)
+            output_tensors[i + len(strides)].sysMem[0].virAddr = ctypes.cast(outputs[i + len(strides)].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), ctypes.c_void_p)
+        else:  
+            output_tensors[i].sysMem[0].virAddr = ctypes.cast(outputs[i].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), ctypes.c_void_p)
+            output_tensors[i + len(strides)].sysMem[0].virAddr = ctypes.cast(outputs[i + len(strides)].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), ctypes.c_void_p)
 
-        libpostprocess.Yolov3doProcess(output_tensors[i], ctypes.pointer(yolov3_postprocess_info), i)
+        libpostprocess.EfficientdetdoProcess(output_tensors[i], output_tensors[i + len(strides)], ctypes.pointer(efficentdet_postprocess_info), i)
 
-    result_str = get_Postprocess_result(ctypes.pointer(yolov3_postprocess_info))  
+    result_str = get_Postprocess_result(ctypes.pointer(efficentdet_postprocess_info))  
     result_str = result_str.decode('utf-8')  
     t2 = time.time()
     print("postprocess time is :", (t2 - t1))
-    # print(result_str)
 
     t0 = time.time()
     # draw result
     # 解析JSON字符串  
-    data = json.loads(result_str[16:])  
+    data = json.loads(result_str[23:])  
 
     # 遍历每一个结果  
     for result in data:  
@@ -195,6 +202,3 @@ if __name__ == '__main__':
 
     print("draw result time is :", (t1 - t0))
 
-
-    # prediction_bbox = postprocess(outputs, model_hw_shape=(416, 416), origin_image=img_file)
-    # print(prediction_bbox)
