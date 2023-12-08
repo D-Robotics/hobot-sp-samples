@@ -2,6 +2,7 @@
 
 import sys
 import os
+import signal
 import getopt
 import numpy as np
 import cv2
@@ -98,6 +99,7 @@ def get_TensorLayout(Layout):
     else:
         return int(0)
 
+is_stop=False
 def get_display_res():
     if os.path.exists("/usr/bin/get_hdmi_res") == False:
         return 1920, 1080
@@ -298,6 +300,7 @@ class DecodeRtspStream(threading.Thread):
     def __init__(self, rtsp_url):
         threading.Thread.__init__(self)
         self.rtsp_url = rtsp_url
+        self.is_running = True
         self.frame_queue = Queue(maxsize=2)
 
     def open(self, dec_chn=0, dec_type=1):
@@ -324,18 +327,22 @@ class DecodeRtspStream(threading.Thread):
         return ret[0]
 
     def close(self):
+        self.is_running = False
+        self.join()
         self.dec.close()
         self.cap.release()
 
     def run(self):
+        global is_stop
         start_time = time()
         image_count = 0
         skip_count = 0
         find_pps_sps = 0
-        while True:
+        while not is_stop:
             ret, stream_frame = self.cap.read()
             if not ret:
-                self.close()
+                self.dec.close()
+                self.cap.release()
                 ret = self.open(self.dec_chn, self.dec_type)
                 if ret != 0:
                     return ret
@@ -390,7 +397,7 @@ class VideoDisplay(threading.Thread):
         self.streamer = streamer
         self.vps_group = vps_group
         self.frame_queue = Queue(maxsize=2)
-
+        self.is_running = True
         # Get HDMI display object
         self.disp = srcampy.Display()
         # For the meaning of parameters, please refer to the relevant documents of HDMI display
@@ -408,14 +415,19 @@ class VideoDisplay(threading.Thread):
         srcampy.bind(self.vps, self.disp)
 
     def close(self):
-        srcampy.unbind(self.vps, self.disp)
-        self.vps.close_cam()
+        self.is_running = False
+        self.join()
+        print("dis stop success")
         self.disp.close()
+        self.vps.close_cam()
+        srcampy.unbind(self.vps, self.disp)
+       
 
     def run(self):
+        global is_stop
         disp_start_time = time()
         disp_image_count = 0
-        while True:
+        while not is_stop:
             frame = self.streamer.get_frame() # 获取nv12格式的yuv帧数据
             if frame is None:
                 sleep(0.01)
@@ -436,6 +448,7 @@ class VideoDisplay(threading.Thread):
                 print("Display FPS: {:.2f}".format(disp_image_count / (disp_finish_time - disp_start_time)))
                 disp_start_time = disp_finish_time
                 disp_image_count = 0
+        self.disp.close()
 
     def get_frame(self):
         # print("self.frame_queue.empty(): qsize: ", self.frame_queue.empty(), self.frame_queue.qsize())
@@ -455,14 +468,15 @@ class AiInference(threading.Thread):
     def close(self):
         pass
 
+
     def run(self):
         # post process parallel executor
         parallel_exe = ParallelExector()
-
+        global is_stop
         ai_start_time = time()
         ai_image_count = 0
 
-        while True:
+        while not is_stop:
             img = self.video_display.get_frame() # 获取nv12格式的yuv帧数据
             if img is None:
                 sleep(0.02)
@@ -486,14 +500,31 @@ class AiInference(threading.Thread):
                 ai_start_time = ai_finish_time
                 ai_image_count = 0
 
+    def print_properties(self, pro):
+        print("tensor type:", pro.tensor_type)
+        print("data type:", pro.dtype)
+        print("layout:", pro.layout)
+        print("shape:", pro.shape)
+
+
+    def get_hw(self, pro):
+        if pro.layout == "NCHW":
+            return pro.shape[2], pro.shape[3]
+        else:
+            return pro.shape[1], pro.shape[2]
+def signal_handler(sig, frame):
+    print("Ctrl+C received. Closing app.")
+    global is_stop 
+    is_stop = True
+
 
 if __name__ == '__main__':
     # rtsp_urls = ["rtsp://username:passwd@127.0.0.1/1080P_test.h264"]
     rtsp_urls = ["rtsp://127.0.0.1/1080P_test.h264"]
-
+    
     enable_display = 1
     enable_ai_inference = 0
-
+    signal.signal(signal.SIGINT, signal_handler)
     try:
         opts, args = getopt.getopt(sys.argv[1:], "hu:d:a",["rtsp_url="])
     except getopt.GetoptError:

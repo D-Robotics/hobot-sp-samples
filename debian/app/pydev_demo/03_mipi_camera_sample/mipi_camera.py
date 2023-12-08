@@ -17,13 +17,16 @@ from hobot_dnn import pyeasy_dnn as dnn
 import threading
 
 image_counter = None
-
+is_stop=False
 output_tensors = None
 
 fcos_postprocess_info = None
 
 def signal_handler(signal, frame):
     sys.exit(0) 
+    global is_stop
+    print("Stopping!\n")
+    is_stop=True
 
 class hbSysMem_t(ctypes.Structure):
     _fields_ = [
@@ -97,6 +100,12 @@ def get_TensorLayout(Layout):
         return int(2)
     else:
         return int(0)
+is_stop=False
+
+def signal_handler(signal, frame):
+    global is_stop
+    print("Stopping!\n")
+    is_stop=True
 
 
 def get_display_res():
@@ -330,7 +339,7 @@ if __name__ == '__main__':
     # post process parallel executor
     parallel_exe = ParallelExector(image_counter)
 
-    while True:
+    while not is_stop:
         # image_counter += 1
         # Get image data with shape of 512x512 nv12 data from camera
         cam_start_time = time()
@@ -353,3 +362,4 @@ if __name__ == '__main__':
         parallel_exe.infer(output_array)
 
     cam.close_cam()
+    disp.close()
