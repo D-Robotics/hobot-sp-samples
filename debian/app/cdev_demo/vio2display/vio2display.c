@@ -94,7 +94,7 @@ int main(int argc, char **argv)
     if (ret)
     {
         printf("[Error] sp_module_bind failed, ret = %d\n", ret);
-        goto error;
+        goto error0;
     }
 
     // 输出 q 退出
@@ -115,7 +115,8 @@ int main(int argc, char **argv)
         }
     }
     printf("Exit!\n");
-
+error0:
+    sp_module_unbind(vio_object, SP_MTYPE_VIO, display_obj, SP_MTYPE_DISPLAY);
 error:
     /*stop module*/
     sp_stop_display(display_obj);
