@@ -194,7 +194,7 @@ def serialize(FrameMessage, data):
     prot_buf = FrameMessage.SerializeToString()
     return prot_buf
 
-models = pyeasy_dnn.load('../models/fcos_efficientnetb0_512x512_nv12_dq.bin')
+models = pyeasy_dnn.load('../models/fcos_512x512_nv12.bin')
 input_shape = (512, 512)
 cam = srcampy.Camera()
 cam.open_cam(0, -1, fps, [512,1920], [512,1080])
