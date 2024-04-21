@@ -112,7 +112,7 @@ def postprocess(model_output, origin_image):
     print("=" * 10, "Waiting for drawing image ", "." * 10)
     plot_image(origin_image, pred_result)
     print("=" * 10, "Dump result image segment_result.png successfully.", "=" * 10)
-    
+
 if __name__ == '__main__':
     # test classification result
     models = pyeasy_dnn.load('../models/mobilenet_unet_1024x2048_nv12.bin')

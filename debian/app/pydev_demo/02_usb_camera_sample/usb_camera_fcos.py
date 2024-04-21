@@ -11,7 +11,7 @@ import colorsys
 from time import time
 
 import ctypes
-import json 
+import json
 
 def signal_handler(signal, frame):
     print("\nExiting program")
@@ -40,7 +40,7 @@ class hbDNNQuantiScale_t(ctypes.Structure):
         ("scaleData",ctypes.POINTER(ctypes.c_float)),
         ("zeroPointLen",ctypes.c_int),
         ("zeroPointData",ctypes.c_char_p)
-    ]    
+    ]
 
 class hbDNNTensorShape_t(ctypes.Structure):
     _fields_ = [
@@ -82,11 +82,11 @@ class FcosPostProcessInfo_t(ctypes.Structure):
     ]
 
 
-libpostprocess = ctypes.CDLL('/usr/lib/libpostprocess.so') 
+libpostprocess = ctypes.CDLL('/usr/lib/libpostprocess.so')
 
 get_Postprocess_result = libpostprocess.FcosPostProcess
-get_Postprocess_result.argtypes = [ctypes.POINTER(FcosPostProcessInfo_t)]  
-get_Postprocess_result.restype = ctypes.c_char_p  
+get_Postprocess_result.argtypes = [ctypes.POINTER(FcosPostProcessInfo_t)]
+get_Postprocess_result.restype = ctypes.c_char_p
 
 def get_TensorLayout(Layout):
     if Layout == "NCHW":
@@ -162,10 +162,10 @@ def draw_bboxs(image, bboxes, classes=get_classes()):
     bbox_thick = int(0.6 * (image_h + image_w) / 600)
 
     for i, result in enumerate(bboxes):
-        bbox = result['bbox']  # 矩形框位置信息  
-        score = result['score']  # 得分  
-        id = int(result['id'])  # id  
-        name = result['name']  # 类别名称 
+        bbox = result['bbox']  # 矩形框位置信息
+        score = result['score']  # 得分
+        id = int(result['id'])  # id
+        name = result['name']  # 类别名称
 
         # coor = limit_display_cord(bbox)
         coor = [round(i) for i in bbox]
@@ -248,7 +248,7 @@ if __name__ == '__main__':
     fcos_postprocess_info.width = 512
     fcos_postprocess_info.ori_height = disp_h
     fcos_postprocess_info.ori_width = disp_w
-    fcos_postprocess_info.score_threshold = 0.5 
+    fcos_postprocess_info.score_threshold = 0.5
     fcos_postprocess_info.nms_threshold = 0.6
     fcos_postprocess_info.nms_top_k = 5
     fcos_postprocess_info.is_pad_resize = 0
@@ -261,10 +261,10 @@ if __name__ == '__main__':
         if (len( models[0].outputs[i].properties.scale_data) == 0):
             output_tensors[i].properties.quantiType = 0
         else:
-            output_tensors[i].properties.quantiType = 2  
-            scale_data_tmp = models[0].outputs[i].properties.scale_data.reshape(1, 1, 1, models[0].outputs[i].properties.shape[3])  
+            output_tensors[i].properties.quantiType = 2
+            scale_data_tmp = models[0].outputs[i].properties.scale_data.reshape(1, 1, 1, models[0].outputs[i].properties.shape[3])
             output_tensors[i].properties.scale.scaleData = scale_data_tmp.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-            
+
         for j in range(len(models[0].outputs[i].properties.shape)):
             output_tensors[i].properties.validShape.dimensionSize[j] = models[0].outputs[i].properties.shape[j]
             output_tensors[i].properties.alignedShape.dimensionSize[j] = models[0].outputs[i].properties.shape[j]
@@ -299,22 +299,22 @@ if __name__ == '__main__':
                 output_tensors[i].sysMem[0].virAddr = ctypes.cast(outputs[i].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), ctypes.c_void_p)
                 output_tensors[i + 5].sysMem[0].virAddr = ctypes.cast(outputs[i + 5].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), ctypes.c_void_p)
                 output_tensors[i + 10].sysMem[0].virAddr = ctypes.cast(outputs[i + 10].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), ctypes.c_void_p)
-            else:      
+            else:
                 output_tensors[i].sysMem[0].virAddr = ctypes.cast(outputs[i].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), ctypes.c_void_p)
                 output_tensors[i + 5].sysMem[0].virAddr = ctypes.cast(outputs[i + 5].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), ctypes.c_void_p)
                 output_tensors[i + 10].sysMem[0].virAddr = ctypes.cast(outputs[i + 10].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), ctypes.c_void_p)
 
             libpostprocess.FcosdoProcess(output_tensors[i], output_tensors[i + 5], output_tensors[i + 10], ctypes.pointer(fcos_postprocess_info), i)
 
-        result_str = get_Postprocess_result(ctypes.pointer(fcos_postprocess_info))  
-        result_str = result_str.decode('utf-8')  
+        result_str = get_Postprocess_result(ctypes.pointer(fcos_postprocess_info))
+        result_str = result_str.decode('utf-8')
         t2 = time()
         # print("FcosdoProcess time is :", (t2 - t1))
         # print(result_str)
 
         # draw result
-        # 解析JSON字符串  
-        data = json.loads(result_str[14:])  
+        # 解析JSON字符串
+        data = json.loads(result_str[14:])
 
         if frame.shape[0]!=disp_h or frame.shape[1]!=disp_w:
             frame = cv2.resize(frame, (disp_w,disp_h), interpolation=cv2.INTER_AREA)

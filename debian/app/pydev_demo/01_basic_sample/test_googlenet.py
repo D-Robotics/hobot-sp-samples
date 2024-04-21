@@ -6,7 +6,7 @@ import cv2
 
 import time
 import ctypes
-import json 
+import json
 
 output_tensors = None
 
@@ -31,7 +31,7 @@ class hbDNNQuantiScale_t(ctypes.Structure):
         ("scaleData",ctypes.POINTER(ctypes.c_float)),
         ("zeroPointLen",ctypes.c_int),
         ("zeroPointData",ctypes.c_char_p)
-    ]    
+    ]
 
 class hbDNNTensorShape_t(ctypes.Structure):
     _fields_ = [
@@ -73,11 +73,11 @@ class ClassificationPostProcessInfo_t(ctypes.Structure):
     ]
 
 
-libpostprocess = ctypes.CDLL('/usr/lib/libpostprocess.so') 
+libpostprocess = ctypes.CDLL('/usr/lib/libpostprocess.so')
 
 get_Postprocess_result = libpostprocess.ClassificationPostProcess
-get_Postprocess_result.argtypes = [ctypes.POINTER(ClassificationPostProcessInfo_t)]  
-get_Postprocess_result.restype = ctypes.c_char_p  
+get_Postprocess_result.argtypes = [ctypes.POINTER(ClassificationPostProcessInfo_t)]
+get_Postprocess_result.restype = ctypes.c_char_p
 
 def get_TensorLayout(Layout):
     if Layout == "NCHW":
@@ -154,30 +154,30 @@ if __name__ == '__main__':
             output_tensors[i].properties.quantiType = 0
             output_tensors[i].sysMem[0].virAddr = ctypes.cast(outputs[i].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), ctypes.c_void_p)
         else:
-            output_tensors[i].properties.quantiType = 2       
+            output_tensors[i].properties.quantiType = 2
             output_tensors[i].properties.scale.scaleData = outputs[i].properties.scale_data.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
             output_tensors[i].sysMem[0].virAddr = ctypes.cast(outputs[i].buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_int32)), ctypes.c_void_p)
-            
+
         for j in range(len(outputs[i].properties.shape)):
             output_tensors[i].properties.validShape.numDimensions = len(outputs[i].properties.shape)
             output_tensors[i].properties.validShape.dimensionSize[j] = outputs[i].properties.shape[j]
-        
+
         libpostprocess.ClassificationDoProcess(output_tensors[i], ctypes.pointer(classification_postprocess_info), i)
 
-    result_str = get_Postprocess_result(ctypes.pointer(classification_postprocess_info))  
-    result_str = result_str.decode('utf-8')  
+    result_str = get_Postprocess_result(ctypes.pointer(classification_postprocess_info))
+    result_str = result_str.decode('utf-8')
     t1 = time.time()
     print("postprocess time is :", (t1 - t0))
 
     # draw result
-    # 解析JSON字符串  
-    data = json.loads(result_str[25:])  
+    # 解析JSON字符串
+    data = json.loads(result_str[25:])
 
-    # 遍历每一个结果  
-    for result in data:  
-        prob = result['prob']  # 得分  
-        label = result['label']  # id  
-        name = result['class_name']  # 类别名称  
-    
-        # 打印信息  
+    # 遍历每一个结果
+    for result in data:
+        prob = result['prob']  # 得分
+        label = result['label']  # id
+        name = result['class_name']  # 类别名称
+
+        # 打印信息
         print(f"cls id: {label}, Confidence: {prob}, class_name: {name}")

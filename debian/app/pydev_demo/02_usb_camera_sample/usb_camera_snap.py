@@ -22,5 +22,5 @@ if __name__ == '__main__':
 
     if frame is None:
         print("Failed to get image from usb camera")
-    
+
     cv2.imwrite("imf.jpg", frame)
