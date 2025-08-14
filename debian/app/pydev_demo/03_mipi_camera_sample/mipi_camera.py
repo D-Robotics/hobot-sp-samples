@@ -363,3 +363,5 @@ if __name__ == '__main__':
 
     cam.close_cam()
     disp.close()
+
+    os.system("systemctl restart lightdm")
