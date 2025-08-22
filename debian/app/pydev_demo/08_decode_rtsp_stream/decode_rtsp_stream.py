@@ -296,12 +296,60 @@ def bytes_to_numpy(image_bytes):
     print(type(image_np),image_np.shape)
     return image_np
 
+
+# 判断解码流的类型，以便填写 self.dec.decode 中的 dec_type。一共两种办法，
+# 一种是使用OpenCV的CAP_PROP_FOURCC属性获取视频流的FourCC编码
+# 一种通过解析NAL单元检测编码类型
+
+def fourcc_int_to_string(fourcc):
+    """将FourCC整数转换为字符串"""
+    try:
+        return bytes([
+            fourcc & 0xFF,
+            (fourcc >> 8) & 0xFF,
+            (fourcc >> 16) & 0xFF,
+            (fourcc >> 24) & 0xFF
+        ]).decode('ascii').lower()
+    except UnicodeDecodeError:
+        return 'unknown'
+
+# mjpg 是一帧一帧的图像，没办法使用 NAL 单元去判断，所以该方法没有判断 mjpg。
+def detect_codec_via_nal_units(byte_stream):
+    """通过解析NAL单元检测编码类型"""
+    start_code_prefix_short = b"\x00\x00\x01"
+    start_code_prefix_long = b"\x00\x00\x00\x01"
+    pos = 0
+    while pos < len(byte_stream):
+        short_pos = byte_stream.find(start_code_prefix_short, pos)
+        long_pos = byte_stream.find(start_code_prefix_long, pos)
+        if short_pos == -1 and long_pos == -1:
+            break
+        if long_pos != -1 and (short_pos == -1 or long_pos < short_pos):
+            start = long_pos
+            nalu_start = start + 4
+        else:
+            start = short_pos
+            nalu_start = start + 3
+        if nalu_start >= len(byte_stream):
+            break
+        first_byte = byte_stream[nalu_start]
+        nal_type_h265 = (first_byte >> 1) & 0x3F
+        if 32 <= nal_type_h265 <= 34:  # H.265的VPS/SPS/PPS
+            return 'h265'
+        nal_type_h264 = first_byte & 0x1F
+        if nal_type_h264 in [7, 8]:    # H.264的SPS/PPS
+            return 'h264'
+        pos = nalu_start + 1
+    return 'h264'  # 默认假设为H.264
+
+
 class DecodeRtspStream(threading.Thread):
     def __init__(self, rtsp_url):
         threading.Thread.__init__(self)
         self.rtsp_url = rtsp_url
         self.is_running = True
         self.frame_queue = Queue(maxsize=2)
+        self.stabilization_complete = False
 
     def open(self, dec_chn=0, dec_type=1):
         self.dec_chn = dec_chn
@@ -311,11 +359,46 @@ class DecodeRtspStream(threading.Thread):
         if not cap.isOpened():
             print("fail to open rtsp: {}".format(self.rtsp_url))
             return -1
+        self.cap = cap
+
+        # 开始判断编码类型
+        fourcc_int = int(self.cap.get(cv2.CAP_PROP_FOURCC))
+        fourcc_str = fourcc_int_to_string(fourcc_int)
+        if fourcc_str in ['h264', 'hevc', 'h265', 'mjpg']:
+            if fourcc_str == 'h264':
+                dec_type = 1
+            elif fourcc_str in ['hevc', 'h265']:
+                dec_type = 2
+            elif fourcc_str == 'mjpg':
+                dec_type = 3
+            print(f"Encoding detected via FourCC: {fourcc_str}, dec_type: {dec_type}")
+        else:
+            # 手动解析NAL单元
+            ret, stream_frame = self.cap.read()
+            if not ret:
+                print("Failed to read frame, unable to detect encoding.")
+                return -1
+            codec_type = detect_codec_via_nal_units(stream_frame.tobytes())
+            if codec_type == 'h264':
+                dec_type = 1
+            elif codec_type == 'h265':
+                dec_type = 2
+            else:
+                print("Unsupported encoding type.")
+                return -1
+            print(f"Encoding detected via NAL unit: {codec_type}, dec_type: {dec_type}")
+            # 重置VideoCapture
+            self.cap.release()
+            self.cap = cv2.VideoCapture(self.rtsp_url)
+            self.cap.set(cv2.CAP_PROP_FORMAT, -1)
+            if not self.cap.isOpened():
+                print("Failed to reopen RTSP stream.")
+                return -1
+        # 判断编码类型结束
 
         print("RTSP stream frame_width:{:.0f}, frame_height:{:.0f}"
                     .format(cap.get(cv2.CAP_PROP_FRAME_WIDTH),
                             cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-        self.cap = cap
         self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
@@ -338,9 +421,15 @@ class DecodeRtspStream(threading.Thread):
         image_count = 0
         skip_count = 0
         find_pps_sps = 0
+        stabilization_count = 80  # 设置稳定帧数（只需在初始阶段执行一次）
+        self.stabilization_complete = False  # 添加完成标志
+
         while not is_stop:
             ret, stream_frame = self.cap.read()
+            # print(f"image_count = {image_count}")
             if not ret:
+                # 连接断开处理 - 重置所有状态
+                # print("restart!!!!")
                 self.dec.close()
                 self.cap.release()
                 ret = self.open(self.dec_chn, self.dec_type)
@@ -349,7 +438,10 @@ class DecodeRtspStream(threading.Thread):
                 start_time = time()
                 image_count = 0
                 skip_count = 0
+                find_pps_sps = 0
                 continue
+
+            # 获取NAL单元类型
             nalu_types = get_h264_nalu_type(stream_frame.tobytes())
             # print("ret:{}, len{}, type{}, nalu_types{}".format(ret, stream_frame.shape, type(stream_frame), nalu_types))
 
@@ -360,34 +452,53 @@ class DecodeRtspStream(threading.Thread):
             # if (nalu_types[0] in [6, 7, 8]):
             #     print("ret:{}, len{}, type{}, nalu_types{}".format(ret, stream_frame.shape, type(stream_frame), nalu_types))
 
-            find_pps_sps = 1
+            # 只设置一次标志
+            if find_pps_sps == 0:
+                find_pps_sps = 1
+                print("Found keyframe parameters, starting stabilization period")
+
             if stream_frame is not None:
                 ret = self.dec.set_img(stream_frame.tobytes(), self.dec_chn) # 发送码流, 先解码数帧图像后再获取
                 if ret != 0:
                     return ret
+
+                # 跳过前8帧（原有逻辑）
                 if skip_count < 8:
                     skip_count += 1
-                    image_count = 0
                     continue
 
                 frame = self.dec.get_img() # 获取nv12格式的yuv帧数据
 
                 if frame is not None:
-                    # print("self.frame_queue.full(): qsize: ", self.frame_queue.full(), self.frame_queue.qsize())
-                    if self.frame_queue.full() == False:
-                        self.frame_queue.put(frame)
+                    # 稳定期处理
+                    if not self.stabilization_complete:
+                        if stabilization_count > 0:
+                            stabilization_count -= 1
+                            if stabilization_count % 10 == 0:  # 每10帧报告一次
+                                print(f"Stabilization in progress: {stabilization_count} frames remaining")
+                        else:
+                            self.stabilization_complete = True
+                            print("Stabilization complete, starting normal processing")
 
-            finish_time = time()
-            image_count += 1
-            if finish_time - start_time > 3:
-                # print(start_time, finish_time, image_count)
-                print("Decode CHAN: {:d} FPS: {:.2f}".format(self.dec_chn, image_count / (finish_time - start_time)))
-                start_time = finish_time
-                image_count = 0
+                    # 稳定期结束后，将帧放入队列
+                    if self.stabilization_complete:
+                        if not self.frame_queue.full():
+                            self.frame_queue.put(frame)
+
+            # FPS计算（仅在稳定期结束后）
+            if self.stabilization_complete:
+                image_count += 1
+                current_time = time()
+                elapsed = current_time - start_time
+                if elapsed >= 3.0:
+                    fps = image_count / elapsed
+                    print(f"Decode CHAN: {self.dec_chn} FPS: {fps:.2f}")
+                    start_time = current_time
+                    image_count = 0
 
     def get_frame(self):
-        # print("self.frame_queue.empty(): qsize: ", self.frame_queue.empty(), self.frame_queue.qsize())
-        if self.frame_queue.empty() == True:
+        # print("self.frame_queue.empty(): qsize: ", self.frame_queue.empty(), self.frame_queue.qsize() , self.stabilization_complete)
+        if (self.frame_queue.empty() == True) and (not self.stabilization_complete):
             return None
         return self.frame_queue.get()
 
