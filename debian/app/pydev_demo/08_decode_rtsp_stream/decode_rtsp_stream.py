@@ -439,6 +439,9 @@ class DecodeRtspStream(threading.Thread):
                 image_count = 0
                 skip_count = 0
                 find_pps_sps = 0
+
+                stabilization_count = 80  # 设置稳定帧数（只需在初始阶段执行一次）
+                self.stabilization_complete = False  # 添加完成标志
                 continue
 
             # 获取NAL单元类型
